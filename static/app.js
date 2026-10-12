@@ -14,7 +14,7 @@
   const icons = ["♣", "♠", "♦", "♥"];
   const activePhases = ["lead", "reply", "cover"];
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const animator = window.CardAnimator ? new window.CardAnimator() : null;
   let game = null;
   let screen = "lobby";
   let selected = new Set();
@@ -77,11 +77,20 @@
   function royalArt(rank, symbol) {
     const crown =
       rank === "K"
-        ? '<path d="M7 12 11 4 18 10 24 3 30 10 37 4 41 12 39 18H9Z" fill="currentColor"/><path d="M11 15H37" stroke="#fffefa" stroke-width="1"/>'
+        ? '<path d="M10 15 10 6 16 11 24 4 32 11 38 6 38 15Z" fill="#c9a65b" stroke="#243e4b" stroke-width=".7"/><path d="M12 13H36M17 10V15M24 8V15M31 10V15" stroke="#fff9e4" stroke-width=".7"/>'
         : rank === "Q"
-          ? '<path d="M10 14 13 7 20 12 24 5 28 12 35 7 38 14 36 18H12Z" fill="currentColor"/>'
-          : '<path d="M10 14Q13 3 27 6L39 14 35 18H12Z" fill="currentColor"/>';
-    return `<svg class="royal-art" viewBox="0 0 48 76" aria-hidden="true"><rect x="1" y="1" width="46" height="74" rx="2" fill="none" stroke="currentColor" stroke-width=".5" opacity=".6"/><g>${crown}<path d="M15 19H33L32 28 26 34 18 29Z" fill="#ecdcca" stroke="currentColor" stroke-width=".7"/><path d="M20 23H22M28 23H30M24 23 23 27H26M22 30H28" fill="none" stroke="currentColor" stroke-width=".7"/><path d="M17 30 9 35 9 43H39V35L31 30 25 36Z" fill="currentColor"/><path d="M12 37 23 43M36 37 25 43" stroke="#fffefa" stroke-width="1"/><path d="M25 34V43" stroke="#cfb278" stroke-width="2"/></g><g transform="translate(48 76) rotate(180)">${crown}<path d="M15 19H33L32 28 26 34 18 29Z" fill="#ecdcca" stroke="currentColor" stroke-width=".7"/><path d="M20 23H22M28 23H30M24 23 23 27H26M22 30H28" fill="none" stroke="currentColor" stroke-width=".7"/><path d="M17 30 9 35 9 43H39V35L31 30 25 36Z" fill="currentColor"/><path d="M12 37 23 43M36 37 25 43" stroke="#fffefa" stroke-width="1"/><path d="M25 34V43" stroke="#cfb278" stroke-width="2"/></g><text x="24" y="43" text-anchor="middle" font-family="Georgia,serif" font-size="13" fill="#fffefa">${symbol}</text></svg>`;
+          ? '<path d="M10 17 13 7 18 12 24 5 30 12 35 7 38 17Z" fill="#c9a65b" stroke="#243e4b" stroke-width=".7"/><circle cx="24" cy="11" r="1.5" fill="#b12e37"/>'
+          : '<path d="M9 15Q13 6 29 7L39 15 36 18H11Z" fill="#b12e37" stroke="#243e4b" stroke-width=".7"/><path d="M14 13 31 10 35 13 13 17Z" fill="#c9a65b"/>';
+    const hair =
+      rank === "Q"
+        ? '<path d="M13 16Q8 23 12 34L18 31 16 20H31L30 31 36 34Q40 23 35 16Z" fill="#c9a65b" stroke="#243e4b" stroke-width=".6"/>'
+        : '<path d="M13 17 12 27 17 26V20H32V26L36 27 35 17Z" fill="#c9a65b" stroke="#243e4b" stroke-width=".6"/>';
+    const beard =
+      rank === "K"
+        ? '<path d="M17 26 20 32 25 35 31 30 33 25 28 29 23 30Z" fill="#c9a65b" stroke="#243e4b" stroke-width=".6"/>'
+        : "";
+    const figure = `${hair}${crown}<path d="M17 18H31L32 26 28 31H21L17 27Z" fill="#f4e7ca" stroke="#243e4b" stroke-width=".65"/><path d="M20 22H23M28 22H30M25 21 24 26H27M22 28H28" fill="none" stroke="#243e4b" stroke-width=".65"/>${beard}<path d="M16 31 8 35V43H40V35L32 31 25 37Z" fill="#b12e37" stroke="#243e4b" stroke-width=".6"/><path d="M9 35 16 33 21 43H9ZM39 35 32 33 27 43H39Z" fill="#244459"/><path d="M13 35 17 43M10 37 13 43M35 35 31 43M38 37 35 43" stroke="#c9a65b" stroke-width="1.2"/><path d="M16 32 24 39 32 32M23 37V44M26 37V44" fill="none" stroke="#c9a65b" stroke-width="1.3"/><circle cx="24.5" cy="40" r="1.1" fill="#fff8df"/>`;
+    return `<svg class="royal-art" viewBox="0 0 48 76" aria-hidden="true"><rect x="1" y="1" width="46" height="74" rx="1" fill="#fbf5e7" stroke="currentColor" stroke-width=".8"/><rect x="3" y="3" width="42" height="70" fill="none" stroke="#c9a65b" stroke-width=".45"/><g>${figure}</g><g transform="translate(48 76) rotate(180)">${figure}</g><path d="M7 37H41" stroke="#c9a65b" stroke-width="1.2"/><circle cx="24" cy="38" r="7" fill="#fbf5e7" stroke="#c9a65b" stroke-width=".8"/><text x="24" y="42" text-anchor="middle" font-family="Georgia,serif" font-size="14" fill="currentColor">${symbol}</text></svg>`;
   }
 
   function cardInterior(card) {
@@ -95,13 +104,16 @@
       middle = `<span class="card-main"><span class="ace-symbol">${symbol}</span></span>`;
     else {
       const count = Number(card.rank);
-      const pairedCount = count % 2 ? count - 1 : count;
-      const pips = Array.from(
-        { length: pairedCount },
-        (_, index) =>
-          `<span class="${index >= pairedCount / 2 ? "pip-upside" : ""}">${symbol}</span>`,
-      ).join("");
-      middle = `<span class="card-pips count-${count}">${pips}${count % 2 ? `<span class="pip-center">${symbol}</span>` : ""}</span>`;
+      const rows = count >= 9 ? [22, 41, 59, 78] : [27, 50, 73];
+      const positions = rows.flatMap((y) => [
+        [34, y],
+        [66, y],
+      ]);
+      if (count === 7) positions.push([50, 38]);
+      if (count === 8) positions.push([50, 38], [50, 62]);
+      if (count === 9) positions.push([50, 50]);
+      if (count === 10) positions.push([50, 31], [50, 69]);
+      middle = `<span class="card-pips count-${count}">${positions.map(([x, y]) => `<span class="${y > 50 ? "pip-upside" : ""}" style="left:${x}%;top:${y}%">${symbol}</span>`).join("")}</span>`;
     }
     return corners + middle;
   }
@@ -127,14 +139,15 @@
     }, 4400);
   }
 
-  function showScreen(next) {
+  function showScreen(next, options = {}) {
     clearTimeout(botTimer);
     screen = next;
+    document.body.classList.toggle("is-playing", next === "game");
     ["lobby", "settings", "game"].forEach((name) => {
       $(`${name}-screen`).hidden = name !== next;
     });
     $("continue-game").hidden = !game;
-    if (next === "game" && game) {
+    if (next === "game" && game && options.render !== false) {
       renderGame();
       showResult();
       scheduleBot();
@@ -147,63 +160,56 @@
   }
 
   function playerHeading(player) {
-    const human = player.id === 0;
     const turn = game.turn === player.id && activePhases.includes(game.phase);
-    return `<div class="player-heading ${turn ? "is-turn" : ""}"><span class="player-avatar ${human ? "human-avatar" : ""}">${icons[player.id]}</span><div><span class="player-name">${escapeHtml(player.name)}</span><span class="player-subtitle">${human ? `${player.round_points} ${plural(player.round_points, ["очко", "очка", "очков"])} · ${player.tricks_count} ${plural(player.tricks_count, ["взятка", "взятки", "взяток"])}` : turn ? "Сейчас ходит" : "За вашим столом"}</span></div><span class="player-penalty" title="Штрафные очки: проигрыш при 12">${player.penalty}<small>/12</small></span></div>`;
+    return `<div class="player-heading ${turn ? "is-turn" : ""}" data-player-pile="${player.id}"><span class="player-avatar">${icons[player.id]}</span><span class="player-name">${escapeHtml(player.name)}</span><span class="player-penalty" title="Штрафы: при 12 очках проигрыш">${player.penalty}<small>/12</small></span><span class="player-points" title="Очки во взятках"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="8" height="11" rx="1.5"/><path d="M11 5h2v9H5v-1"/></svg>${player.round_points}</span></div>`;
   }
 
   function renderOpponents() {
     const players = game.players.slice(1);
     $("opponents").classList.toggle("one-opponent", players.length === 1);
+    $("opponents").classList.toggle("three-opponents", players.length === 3);
     $("opponents").innerHTML = players
       .map((player) => {
-        const count = player.hand_count;
-        const cards = Array.from({ length: count }, (_, index) => {
-          const rotation = (index - (count - 1) / 2) * 6;
-          return backHtml(
-            `data-hand-player="${player.id}" data-hand-index="${index}" style="--rotation:${rotation}deg"`,
-          );
-        }).join("");
-        return `<div class="opponent" data-player="${player.id}">${playerHeading(player)}<div class="opponent-hand">${cards}</div><span class="opponent-points">${player.round_points} ${plural(player.round_points, ["очко", "очка", "очков"])} · ${player.tricks_count} ${plural(player.tricks_count, ["взятка", "взятки", "взяток"])}</span></div>`;
+        const cards = Array.from({ length: player.hand_count }, (_, index) =>
+          backHtml(
+            `data-hand-player="${player.id}" data-hand-index="${index}" style="--rotation:${(index - (player.hand_count - 1) / 2) * 6}deg"`,
+          ),
+        ).join("");
+        return `<div class="opponent" data-player="${player.id}">${playerHeading(player)}<div class="opponent-hand" data-player-hand="${player.id}">${cards}</div></div>`;
       })
       .join("");
   }
 
   function renderDeck() {
     let html = game.deck_count
-      ? `<div class="deck-cards">${backHtml('data-deck-layer="bottom"')}${backHtml('data-deck-layer="middle"')}${backHtml('id="deck-card"')}</div>`
-      : '<div class="empty-deck" id="deck-card">♧</div>';
+      ? `<div class="deck-cards">${backHtml('data-deck-layer="bottom"')}${backHtml('data-deck-layer="middle"')}${backHtml('id="deck-card" data-deck')}</div>`
+      : '<div class="empty-deck" id="deck-card" data-deck aria-label="Колода закончилась"></div>';
     if (game.hidden_trump)
       html += `<div class="hidden-trump-card" title="Скрытый козырь">${backHtml()}</div>`;
     if (game.open_trump)
       html += `<div class="open-trump">${cardHtml(game.open_trump)}</div>`;
-    html += `<div class="deck-caption"><span>${game.deck_count ? `В колоде <strong>${game.deck_count}</strong>` : "Колода закончилась"}</span><span>Козырь <span class="trump-symbol ${isRed(game.trump) ? "red" : ""}">${suits[game.trump]}</span> ${suitNames[game.trump]}</span>${game.hidden_trump ? '<span class="hidden-trump-note">+ скрытый козырь</span>' : ""}</div>`;
+    html += `<div class="deck-caption"><span class="deck-count" title="Осталось карт в колоде">${game.deck_count}</span><span class="trump-symbol ${isRed(game.trump) ? "red" : ""}" title="Козырь: ${suitNames[game.trump]}">${suits[game.trump]}</span></div>`;
     $("deck-area").innerHTML = html;
   }
 
   function renderTable() {
     const table = game.table;
     if (!table.length) {
-      $("table-cards").innerHTML =
-        '<div class="empty-table-note">Новый заход — новый шанс.</div>';
+      $("table-cards").replaceChildren();
       return;
     }
-    const lastWinnerIndex = table
-      .map((entry) => entry.kind)
-      .lastIndexOf("beat");
-    const topIndex = lastWinnerIndex >= 0 ? lastWinnerIndex : 0;
-    let beatDepth = 0;
-    let discardDepth = 0;
+    const lastBeat = table.map((entry) => entry.kind).lastIndexOf("beat");
+    const topIndex = lastBeat >= 0 ? lastBeat : 0;
+    let beatDepth = 0,
+      discardDepth = 0;
     $("table-cards").innerHTML = table
       .map((entry, index) => {
         const discard = entry.kind === "discard";
         if (entry.kind === "beat") beatDepth++;
         if (discard) discardDepth++;
         const depth = discard ? discardDepth : beatDepth;
-        const offsetX = discard ? -18 - depth * 5 : depth * 9;
-        const offsetY = discard ? 18 + depth * 4 : -depth * 5;
-        const z = discard ? index + 1 : 50 + index;
-        const title = `${game.players[entry.player].name} · ${entry.kind === "lead" ? "заход" : entry.kind === "beat" ? "перекрыл" : "сброс"}`;
+        const offsetX = discard ? -18 - depth * 4 : depth * 8;
+        const offsetY = discard ? 17 + depth * 4 : -depth * 5;
         const cards = entry.cards
           .map((card, position) =>
             cardHtml(card, {
@@ -212,7 +218,7 @@
             }),
           )
           .join("");
-        return `<div class="table-entry kind-${entry.kind} ${index !== topIndex ? "obscured" : ""}" data-entry-index="${index}" style="margin-left:${offsetX}px;top:${offsetY}px;z-index:${z}"><span class="table-entry-label">${escapeHtml(title)}</span>${cards}</div>`;
+        return `<div class="table-entry kind-${entry.kind} ${index !== topIndex ? "obscured" : ""}" data-entry-index="${index}" style="margin-left:${offsetX}px;top:${offsetY}px;z-index:${discard ? index + 1 : 50 + index}"><span class="table-entry-label">${escapeHtml(game.players[entry.player].name)}</span>${cards}</div>`;
       })
       .join("");
   }
@@ -231,7 +237,7 @@
       ? hand
           .map((card, index) => {
             const chosen = selected.has(card.id);
-            const rotation = (index - (hand.length - 1) / 2) * 3;
+            const rotation = (index - (hand.length - 1) / 2) * 4;
             const lift = Math.round(
               Math.abs(index - (hand.length - 1) / 2) * 2.5,
             );
@@ -262,7 +268,6 @@
   function updateControls() {
     if (!game) return;
     const legal = game.legal;
-    const isHumanTurn = game.turn === 0;
     const active = activePhases.includes(game.phase);
     $("selection-count").textContent = selected.size;
     $("play-cards").disabled = busy || !legal.can_play || selected.size === 0;
@@ -274,50 +279,29 @@
     $("resume-bots").hidden = !buraPending() && !botError;
     $("resume-bots").disabled = busy;
     $("resume-bots").textContent = botError
-      ? "Повторить ход бота →"
+      ? "Повторить ход →"
       : "Продолжить без буры →";
-    let title, description;
-    if (!active) {
-      title =
-        game.phase === "match_over" ? "Игра завершена" : "Раздача завершена";
-      description = "Результаты уже за столом.";
-    } else if (busy) {
-      title = "Карты на стол…";
-      description = "Играем без спешки.";
-    } else if (buraPending()) {
-      title = "У вас бура!";
-      description = "Объявите её до следующего захода или продолжите игру.";
-    } else if (isHumanTurn && game.phase === "lead") {
-      title = legal.can_bura ? "Ваш ход. И у вас бура!" : "Ваш ход";
-      description = `Выберите от 1 до ${legal.max_lead} карт одной масти.`;
-    } else if (isHumanTurn && game.phase === "reply") {
-      title = "Ваш ответ";
-      description = `Выберите ${legal.required_count} ${legal.required_count === 1 ? "карту" : "карты"}: перекройте или сбросьте.`;
-    } else if (isHumanTurn && game.phase === "cover") {
-      title = "Можно сбить поверх";
-      description = `Перекройте ${legal.required_count} ${legal.required_count === 1 ? "карту" : "карты"} или нажмите «Не крыть».`;
-    } else {
-      title = `${game.players[game.turn]?.name || "Соперник"} обдумывает ход`;
-      description = "Ваша очередь скоро. Следите за козырями.";
-    }
-    $("turn-title").textContent = title;
-    $("turn-title").classList.toggle(
-      "loading-dots",
-      active && !isHumanTurn && !buraPending() && !botError,
-    );
+    let hint;
+    if (!active) hint = "";
+    else if (busy) hint = "";
+    else if (buraPending()) hint = "Все карты — козыри. У вас бура!";
+    else if (game.turn !== 0)
+      hint = `${game.players[game.turn]?.name || "Соперник"} ходит…`;
+    else if (game.phase === "lead")
+      hint =
+        legal.max_lead === 1
+          ? "Ваш ход · выберите одну карту"
+          : `Ваш ход · 1–${legal.max_lead} карты одной масти`;
+    else if (game.phase === "cover")
+      hint = `Перекройте ${legal.required_count} ${legal.required_count === 1 ? "карту" : "карты"} или откажитесь`;
+    else
+      hint = `Ваш ответ · ${legal.required_count} ${legal.required_count === 1 ? "карта" : "карты"}`;
     $("turn-description").textContent =
-      (!busy && isHumanTurn && selectionDescription()) || description;
-    $("table-status").textContent =
-      game.table.length && game.winner !== null
-        ? `Сейчас взятка у ${game.winner === 0 ? "вас" : game.players[game.winner].name.toLowerCase()}`
-        : "";
+      !busy && game.turn === 0 && selected.size ? selectionDescription() : hint;
   }
 
   function renderGame() {
     if (!game) return;
-    $("round-label").textContent = `Раздача ${game.round}`;
-    $("game-settings-label").textContent =
-      `${game.settings.players} игрока · ${game.settings.hand_size} ${plural(game.settings.hand_size, ["карта", "карты", "карт"])}`;
     renderOpponents();
     renderDeck();
     renderTable();
@@ -325,262 +309,27 @@
     updateControls();
   }
 
-  function capturePositions() {
-    const cards = new Map();
-    const table = [];
-    document.querySelectorAll("#game-table [data-card-id]").forEach((node) => {
-      cards.set(node.dataset.cardId, node.getBoundingClientRect());
-    });
-    document.querySelectorAll("#table-cards .card").forEach((node) => {
-      table.push({ rect: node.getBoundingClientRect(), html: node.outerHTML });
-    });
-    const players = new Map();
-    document.querySelectorAll("[data-player]").forEach((node) => {
-      players.set(Number(node.dataset.player), node.getBoundingClientRect());
-    });
-    const human = $("human-player").getBoundingClientRect();
-    players.set(0, human);
-    const deck =
-      $("deck-card")?.getBoundingClientRect() ||
-      $("deck-area").getBoundingClientRect();
-    return { cards, table, players, deck };
+  function renderAnimationState(state) {
+    const finalState = game;
+    game = state;
+    renderGame();
+    game = finalState;
   }
 
-  function rectForPlayer(player, positions, index = 0) {
-    const position = positions.players.get(player);
-    if (!position) return positions.deck;
-    return {
-      left: position.left + position.width / 2 - 27 + index * 3,
-      top: position.top + (player === 0 ? 47 : 46),
-      width: 54,
-      height: 76,
-    };
-  }
-
-  function tableDestination(index, count) {
-    const bounds = $("table-cards").getBoundingClientRect();
-    const width =
-      innerWidth <= 380
-        ? 48
-        : innerWidth <= 620
-          ? 53
-          : innerWidth <= 850
-            ? 63
-            : 69;
-    return {
-      left:
-        bounds.left +
-        bounds.width / 2 -
-        (count * (width + 7)) / 2 +
-        index * (width + 7),
-      top: bounds.top,
-      width,
-      height: width * 1.4,
-    };
-  }
-
-  function createFlyingCard(html, from, to, duration = 300, keep = false) {
-    const wrapper = document.createElement("div");
-    wrapper.innerHTML = html;
-    const node = wrapper.firstElementChild;
-    node.classList.add("card-flight");
-    node.removeAttribute("style");
-    node.style.width = `${to.width || 60}px`;
-    node.style.height = `${to.height || 84}px`;
-    node.style.left = `${to.left}px`;
-    node.style.top = `${to.top}px`;
-    $("animation-layer").appendChild(node);
-    const dx = from.left - to.left;
-    const dy = from.top - to.top;
-    const startScale = (from.width || to.width) / to.width;
-    const animation = node.animate(
-      [
-        {
-          transform: `translate(${dx}px,${dy}px) scale(${startScale}) rotate(-9deg)`,
-          opacity: 0.95,
-        },
-        {
-          transform: `translate(${dx * 0.4}px,${dy * 0.35 - 20}px) scale(1.08) rotate(3deg)`,
-          offset: 0.55,
-          opacity: 1,
-        },
-        { transform: "translate(0,0) scale(1) rotate(0)", opacity: 1 },
-      ],
-      { duration, easing: "cubic-bezier(.2,.75,.3,1)", fill: "forwards" },
-    );
-    const promise = animation.finished
-      .catch(() => {})
-      .then(() => {
-        if (!keep) node.remove();
+  async function playEvents(previous, next, events) {
+    if (animator && screen === "game") {
+      await animator.play({
+        previous,
+        next,
+        events,
+        render: renderAnimationState,
       });
-    return { node, promise, rect: to };
-  }
-
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  async function animateEvents(events, previous, oldGame) {
-    if (reducedMotion || !events?.length || screen !== "game") return;
-    const current = capturePositions();
-    const transient = [];
-    const flights = [];
-    const dealt = new Map(game.players.map((player) => [player.id, 0]));
-    const incoming = new Map(
-      game.players.map((player) => [
-        player.id,
-        events
-          .filter(
-            (event) =>
-              ["deal", "draw"].includes(event.type) &&
-              event.player === player.id,
-          )
-          .reduce((sum, event) => sum + event.count, 0),
-      ]),
-    );
-    const addedHuman = game.players[0].hand.filter(
-      (card) => !oldGame?.players[0].hand.some((old) => old.id === card.id),
-    );
-    const hiddenNodes = [];
-    addedHuman.forEach((card) => {
-      const node = $("human-hand").querySelector(`[data-card-id="${card.id}"]`);
-      if (node) {
-        node.style.visibility = "hidden";
-        hiddenNodes.push(node);
-      }
-    });
-    game.players.slice(1).forEach((player) => {
-      const start = Math.max(0, player.hand_count - incoming.get(player.id));
-      for (let index = start; index < player.hand_count; index++) {
-        const node = document.querySelector(
-          `[data-hand-player="${player.id}"][data-hand-index="${index}"]`,
-        );
-        if (node) {
-          node.style.visibility = "hidden";
-          hiddenNodes.push(node);
-        }
-      }
-    });
-    const playEvents = events.filter((event) => event.type === "play");
-    const entries = [...document.querySelectorAll(".table-entry")];
-    for (const event of playEvents) {
-      const entry = [...entries].reverse().find((node) => {
-        const data = game.table[Number(node.dataset.entryIndex)];
-        return data.player === event.player && data.kind === event.kind;
-      });
-      if (entry) {
-        entry.style.visibility = "hidden";
-        hiddenNodes.push(entry);
-      }
-    }
-    try {
-      for (const event of events) {
-        if (event.type === "deal" || event.type === "draw") {
-          for (let index = 0; index < event.count; index++) {
-            const number = dealt.get(event.player);
-            dealt.set(event.player, number + 1);
-            let node, to;
-            if (event.player === 0) {
-              const card = addedHuman[number];
-              node =
-                card &&
-                $("human-hand").querySelector(`[data-card-id="${card.id}"]`);
-              to =
-                node?.getBoundingClientRect() ||
-                rectForPlayer(event.player, current, number);
-            } else {
-              const count = game.players[event.player].hand_count;
-              const nodeIndex =
-                Math.max(0, count - incoming.get(event.player)) + number;
-              node = document.querySelector(
-                `[data-hand-player="${event.player}"][data-hand-index="${nodeIndex}"]`,
-              );
-              to =
-                node?.getBoundingClientRect() ||
-                rectForPlayer(event.player, current, number);
-            }
-            if (node) {
-              node.style.visibility = "hidden";
-              hiddenNodes.push(node);
-            }
-            const flight = createFlyingCard(backHtml(), current.deck, to, 280);
-            flights.push(
-              flight.promise.then(() => {
-                if (node) node.style.visibility = "";
-              }),
-            );
-            await delay(event.type === "deal" ? 65 : 75);
-          }
-        } else if (event.type === "play") {
-          const playFlights = event.cards.map((card, index) => {
-            const from =
-              (card.id && previous.cards.get(card.id)) ||
-              rectForPlayer(event.player, previous, index);
-            const tableNode =
-              card.id &&
-              $("table-cards").querySelector(`[data-card-id="${card.id}"]`);
-            const to =
-              tableNode?.getBoundingClientRect() ||
-              tableDestination(index, event.cards.length);
-            const flight = createFlyingCard(
-              cardHtml(card, { faceDown: event.face_down }),
-              from,
-              to,
-              320,
-              true,
-            );
-            transient.push(flight);
-            return flight.promise;
-          });
-          await Promise.all(playFlights);
-          for (const node of hiddenNodes.filter((item) =>
-            item.classList.contains("table-entry"),
-          ))
-            node.style.visibility = "";
-        } else if (event.type === "collect") {
-          await delay(130);
-          const all = previous.table.concat(
-            transient.map((flight) => ({
-              rect: flight.rect,
-              html: flight.node.outerHTML,
-            })),
-          );
-          const pile = all.slice(0, event.count);
-          const destination = rectForPlayer(event.player, current);
-          await Promise.all(
-            pile.map(
-              (card, index) =>
-                createFlyingCard(
-                  card.html,
-                  card.rect,
-                  {
-                    ...destination,
-                    left: destination.left + index * 2,
-                    width: 45,
-                    height: 63,
-                  },
-                  330,
-                ).promise,
-            ),
-          );
-          transient.forEach((flight) => flight.node.remove());
-        } else if (event.type === "trump") {
-          $("deck-area").classList.remove("trump-flash");
-          void $("deck-area").offsetWidth;
-          $("deck-area").classList.add("trump-flash");
-          toast(
-            `Новый козырь — ${suits[event.suit]} ${suitNames[event.suit]}. Скрытая карта раскрыта.`,
-          );
-          await delay(330);
-        } else if (event.type === "round_end") await delay(150);
-      }
-      await Promise.all(flights);
-    } finally {
-      hiddenNodes.forEach((node) => {
-        node.style.visibility = "";
-      });
-      transient.forEach((flight) => flight.node.remove());
-      $("animation-layer").replaceChildren();
+    } else {
+      renderGame();
     }
   }
+
+  window.BurkozelCards = { cardHtml, backHtml };
 
   async function api(method, path, body) {
     let response;
@@ -617,7 +366,6 @@
     if (busy) return;
     clearTimeout(botTimer);
     const oldGame = game;
-    const positions = capturePositions();
     busy = true;
     requestEpoch++;
     botError = false;
@@ -631,10 +379,9 @@
       const data = await request();
       game = data.game;
       selected.clear();
-      renderGame();
       const events = game.revision !== lastEventRevision ? game.events : [];
       lastEventRevision = game.revision;
-      await animateEvents(events, positions, oldGame);
+      await playEvents(oldGame, game, events);
       showResult();
     } catch (error) {
       if (error.game !== undefined) {
@@ -687,7 +434,8 @@
       game.turn === 0 ||
       !activePhases.includes(game.phase) ||
       buraPending() ||
-      botError
+      botError ||
+      document.querySelector("dialog[open]")
     )
       return;
     botTimer = setTimeout(() => {
@@ -772,9 +520,9 @@
       declinedBuraHand = "";
       resultKey = "";
       botError = false;
-      showScreen("game");
+      showScreen("game", { render: false });
       lastEventRevision = game.revision;
-      await animateEvents(game.events, capturePositions(), null);
+      await playEvents(null, game, game.events);
     } catch (error) {
       toast(error.message);
     } finally {
@@ -825,20 +573,28 @@
     showScreen("game");
   };
   $("game-lobby").onclick = () => {
-    if (!busy) showScreen("lobby");
+    if (!busy) {
+      $("table-menu").close();
+      showScreen("lobby");
+    }
   };
   $("brand-home").onclick = (event) => {
     event.preventDefault();
     if (!busy) showScreen("lobby");
   };
   $("new-game").onclick = () => {
-    if (!busy) $("new-game-dialog").showModal();
+    if (!busy) {
+      $("table-menu").close();
+      $("new-game-dialog").showModal();
+    }
   };
   $("multiplayer-placeholder").onclick = () => {
     toast("Мультиплеер появится позже. А пока боты готовы составить компанию.");
   };
   document.querySelectorAll(".rules-toggle").forEach((button) => {
     button.onclick = () => {
+      $("table-menu").close();
+      clearTimeout(botTimer);
       $("rules-dialog").showModal();
     };
   });
@@ -847,7 +603,12 @@
       button.closest("dialog").close();
     };
   });
+  $("table-menu-toggle").onclick = () => {
+    clearTimeout(botTimer);
+    $("table-menu").showModal();
+  };
   document.querySelectorAll("dialog").forEach((dialog) => {
+    dialog.addEventListener("close", scheduleBot);
     dialog.addEventListener("click", (event) => {
       const bounds = dialog.getBoundingClientRect();
       if (

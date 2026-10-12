@@ -87,6 +87,13 @@ def create_app(config: dict | None = None) -> Flask:
     def public(saved: SavedGame) -> dict:
         return {**rules.view(saved.state), "id": saved.id, "revision": saved.revision}
 
+    def normalize(saved: SavedGame) -> None:
+        state = copy.deepcopy(saved.state)
+        if rules.normalize_state(state):
+            saved.state = state
+            saved.revision += 1
+            saved.updated_at = datetime.now(timezone.utc)
+
     @app.after_request
     def headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -117,9 +124,12 @@ def create_app(config: dict | None = None) -> Flask:
 
     @app.get("/api/game")
     def get_game():
-        with Session(db) as store:
-            saved = store.scalar(select(SavedGame).where(SavedGame.owner == owner()))
+        def load(store):
+            saved = store.scalar(select(SavedGame).where(SavedGame.owner == owner()).with_for_update())
+            if saved:
+                normalize(saved)
             return jsonify(game=public(saved) if saved else None)
+        return mutation(load)
 
     def payload() -> dict:
         value = request.get_json(silent=True)
@@ -179,6 +189,7 @@ def create_app(config: dict | None = None) -> Flask:
             saved = store.scalar(select(SavedGame).where(SavedGame.owner == owner()).with_for_update())
             if not saved:
                 return jsonify(error="Сначала начните игру.", game=None), 404
+            normalize(saved)
             if (data.get("game_id") != saved.id or type(data.get("revision")) is not int
                     or data["revision"] != saved.revision):
                 current = public(saved)

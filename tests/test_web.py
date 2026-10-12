@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from burkozel.web import SavedGame, create_app
+from burkozel import engine as rules
 
 
 @pytest.fixture
@@ -136,3 +137,73 @@ def test_new_game_replaces_only_own_game_and_delete_works(client):
     assert client.get("/api/game").json["game"]["id"] == second["id"]
     assert client.delete("/api/game", json={"game_id": second["id"]}, headers=headers(client)).json == {"game": None}
     assert client.get("/api/game").json == {"game": None}
+
+
+def test_legacy_game_is_migrated_once_and_preserves_session(client, app):
+    game = start(client)
+    with Session(app.extensions["burkozel_db"]) as store:
+        saved = store.scalar(select(SavedGame))
+        old = dict(saved.state)
+        old.pop("_rules_version", None)
+        old.pop("_cycle_participants", None)
+        saved.state = old
+        store.commit()
+    migrated = client.get("/api/game").json["game"]
+    assert migrated["id"] == game["id"]
+    assert migrated["revision"] == game["revision"] + 1
+    assert migrated["deck_count"] == game["deck_count"]
+    assert {c["id"] for c in migrated["players"][0]["hand"]} == {
+        c["id"] for c in game["players"][0]["hand"]
+    }
+    assert client.get("/api/game").json["game"]["revision"] == migrated["revision"]
+    old_action = {"action": "play", "cards": [game["players"][0]["hand"][0]["id"]],
+                  "game_id": game["id"], "revision": game["revision"]}
+    assert client.post("/api/action", json=old_action, headers=headers(client)).status_code == 409
+    with Session(app.extensions["burkozel_db"]) as store:
+        assert store.scalar(select(SavedGame)).state["_rules_version"] == 2
+
+
+def test_second_cover_requires_bot_to_discard_through_http(client, app):
+    game = start(client)
+    state = rules.new_game({"players": 2, "hand_size": 4, "dark": True,
+                            "overtrump": True}, seed=17)
+    hands = [["clubs-K", "clubs-A", "diamonds-8", "diamonds-9"],
+             ["clubs-10", "hearts-6", "hearts-7", "hearts-8"]]
+    used = {card for hand in hands for card in hand}
+    pool = [rules._card(suit, rank) for suit in rules.SUITS for rank in rules.RANKS]
+    state["_deck"] = [card for card in pool if card["id"] not in used]
+    state["deck_count"] = len(state["_deck"])
+    state["open_trump"] = state["_deck"][-2]
+    state["_hidden_trump_id"] = state["_deck"][-1]["id"]
+    state["trump"] = state["open_trump"]["suit"]
+    for player, hand in zip(state["players"], hands):
+        player["hand"] = rules.sort_hand([card for card in pool if card["id"] in hand], state["trump"])
+        player["hand_count"] = len(hand)
+    state["events"] = []
+    with Session(app.extensions["burkozel_db"]) as store:
+        saved = store.scalar(select(SavedGame))
+        saved.state = state
+        store.commit()
+
+    current = client.get("/api/game").json["game"]
+
+    def move(action, cards=()):
+        nonlocal current
+        response = client.post("/api/action", json={"action": action, "cards": list(cards),
+                               "game_id": current["id"], "revision": current["revision"]},
+                               headers=headers(client))
+        assert response.status_code == 200, response.json
+        current = response.json["game"]
+
+    move("play", ["clubs-K"])
+    move("bot")
+    assert current["phase"] == "cover" and current["turn"] == 0
+    move("play", ["clubs-A"])
+    assert current["phase"] == "reply" and current["turn"] == 1
+    assert current["players"][1]["hand_count"] == 3
+    move("bot")
+    plays = [event for event in current["events"] if event["type"] == "play"]
+    assert plays[0]["player"] == 1 and plays[0]["kind"] == "discard"
+    assert plays[0]["cards"] == [{"hidden": True}]
+    assert next(event["count"] for event in current["events"] if event["type"] == "collect") == 4
+    assert [event["player"] for event in current["events"] if event["type"] == "draw"] == [0, 1, 0, 1]

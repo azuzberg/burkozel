@@ -6,7 +6,7 @@ import pytest
 
 from burkozel.engine import (
     InvalidMove, POINTS, RANKS, SUITS, _finish_round, act, new_game,
-    next_round, step_bot, view,
+    next_round, normalize_state, sort_hand, step_bot, view,
 )
 
 
@@ -157,12 +157,14 @@ def test_additional_cover_can_continue_back_around_the_table():
     act(game, "play", ["clubs-10"], player=1)
     assert game["phase"] == "cover" and game["turn"] == 0
     act(game, "play", ["clubs-A"])
-    assert game["phase"] == "cover" and game["turn"] == 1
-    before_hand = deepcopy(game["players"][1]["hand"])
-    act(game, "pass", player=1)
-    assert game["players"][1]["hand"] == before_hand
+    assert game["phase"] == "reply" and game["turn"] == 1
+    with pytest.raises(InvalidMove):
+        act(game, "pass", player=1)
+    act(game, "play", ["hearts-A"], player=1)
+    assert len(game["players"][1]["hand"]) == 2
     assert game["phase"] == "lead" and game["turn"] == 0
-    assert {item["id"] for item in game["_captured"][0]} == {"clubs-K", "clubs-10", "clubs-A"}
+    assert {item["id"] for item in game["_captured"][0]} == {
+        "clubs-K", "clubs-10", "clubs-A", "hearts-A"}
 
 
 def test_three_card_attack_cannot_be_recovered_with_one_card_left():
@@ -172,14 +174,10 @@ def test_three_card_attack_cannot_be_recovered_with_one_card_left():
     ], overtrump=True)
     act(game, "play", ["clubs-6", "clubs-7", "clubs-8"])
     act(game, "play", ["clubs-9", "clubs-J", "clubs-Q"], player=1)
-    assert view(game)["legal"] == {
-        "can_play": False, "can_pass": True, "can_bura": False,
-        "required_count": 3, "max_lead": 0,
-    }
-    with pytest.raises(InvalidMove):
-        act(game, "play", ["hearts-6"])
-    act(game, "pass")
     assert game["turn"] == 1 and game["phase"] == "lead"
+    assert view(game)["legal"]["required_count"] == 0
+    assert view(game)["legal"]["max_lead"] == 1
+    assert len(game["_captured"][1]) == 6
 
 
 def test_invalid_additional_cover_is_rejected_without_consuming_cards():
@@ -214,29 +212,227 @@ def test_draw_is_one_card_at_a_time_from_the_winner_and_last_card_changes_trump(
     draws = [event for event in game["events"] if event["type"] == "draw"]
     assert [event["player"] for event in draws] == [0, 1, 0, 1]
     assert all(event["count"] == 1 for event in draws)
-    assert game["players"][0]["hand"][-1]["id"] == "spades-8"
-    assert game["players"][1]["hand"][-1]["id"] == "clubs-8"
+    assert "spades-8" in {item["id"] for item in game["players"][0]["hand"]}
+    assert "clubs-8" in {item["id"] for item in game["players"][1]["hand"]}
     assert game["trump"] == "clubs"
     assert game["open_trump"] is None and not game["hidden_trump"]
     assert game["deck_count"] == 0
     assert game["events"][-1] == {"type": "trump", "suit": "clubs"}
+    assert [item["cards"][0]["id"] for item in draws if item["player"] == 0] == [
+        "diamonds-6", "spades-8"]
+    assert all("cards" not in item for item in draws if item["player"] != 0)
+    assert all(player["hand"] == sort_hand(player["hand"], "clubs") for player in game["players"])
 
 
 def test_drawing_skips_full_hands():
     game = position([
-        ["clubs-K", "clubs-A", "diamonds-6", "diamonds-7"],
+        ["clubs-K", "diamonds-6"],
         ["clubs-10", "hearts-6", "hearts-7", "hearts-8"],
         ["clubs-Q", "diamonds-8", "diamonds-9", "diamonds-J"],
-    ], deck=["spades-6", "spades-7", "spades-8", "spades-9"], overtrump=True)
+    ], deck=["spades-6", "spades-7", "hearts-9", "spades-8", "spades-9"], overtrump=True)
     act(game, "play", ["clubs-K"])
     act(game, "play", ["clubs-10"], player=1)
     act(game, "play", ["clubs-Q"], player=2)
-    act(game, "play", ["clubs-A"])
-    act(game, "pass", player=1)
-    act(game, "pass", player=2)
+    act(game, "pass")
     draws = [event["player"] for event in game["events"] if event["type"] == "draw"]
-    assert draws == [0, 1, 2, 0]
+    assert draws == [1, 2, 0, 0, 0]
     assert all(len(player["hand"]) == 4 for player in game["players"])
+
+
+@pytest.mark.parametrize("players,count", itertools.product((2, 3, 4), (1, 2, 3)))
+def test_second_cycle_requires_equal_payment_from_every_player(players, count):
+    first = [f"clubs-{rank}" for rank in ("6", "7", "8")[:count]]
+    cover = [f"spades-{rank}" for rank in ("6", "7", "8")[:count]]
+    opening = [
+        first,
+        [f"clubs-{rank}" for rank in ("9", "J", "Q")[:count]],
+        [f"hearts-{rank}" for rank in ("6", "7", "8")[:count]],
+        [f"hearts-{rank}" for rank in ("9", "J", "Q")[:count]],
+    ][:players]
+    closing = [
+        cover,
+        [f"diamonds-{rank}" for rank in ("6", "7", "8")[:count]],
+        [f"diamonds-{rank}" for rank in ("9", "J", "Q")[:count]],
+        [f"hearts-{rank}" for rank in ("K", "10", "A")[:count]],
+    ][:players]
+    game = position([lead + reply for lead, reply in zip(opening, closing)],
+                    overtrump=True, hand_size=6 if count == 3 else 4)
+    for player, ids in enumerate(opening):
+        act(game, "play", ids, player=player)
+    assert game["phase"] == "cover" and game["turn"] == 0
+    act(game, "play", closing[0])
+    for player in range(1, players):
+        assert game["phase"] == "reply" and game["turn"] == player
+        assert game["_required_count"] == count
+        assert not view(game)["legal"]["can_pass"]
+        before = deepcopy(game)
+        with pytest.raises(InvalidMove):
+            act(game, "pass", player=player)
+        assert game == before
+        act(game, "play", closing[player], player=player)
+    assert game["phase"] == "round_over"
+    assert all(not player["hand"] for player in game["players"])
+    plays = [event for event in game["events"] if event["type"] == "play"]
+    assert len(plays) == players * 2
+    assert all(sum(len(play["cards"]) for play in plays if play["player"] == index) == 2 * count
+               for index in range(players))
+    assert len(game["_captured"][0]) == 2 * players * count
+
+
+def test_each_complete_cycle_can_offer_its_leader_another_cover():
+    game = position([
+        ["clubs-6", "clubs-9", "clubs-K"],
+        ["clubs-7", "clubs-J", "clubs-10"],
+        ["clubs-8", "clubs-Q", "clubs-A"],
+    ], overtrump=True)
+    for cards in (("clubs-6", "clubs-7", "clubs-8"),
+                  ("clubs-9", "clubs-J", "clubs-Q"),
+                  ("clubs-K", "clubs-10", "clubs-A")):
+        for player, card_id in enumerate(cards):
+            act(game, "play", [card_id], player=player)
+        if cards[0] != "clubs-K":
+            assert game["phase"] == "cover" and game["turn"] == 0
+    assert game["phase"] == "round_over"
+    assert len(game["_captured"][2]) == 9
+
+
+def test_no_additional_cycle_if_one_original_participant_cannot_afford_it():
+    game = position([
+        ["clubs-6", "clubs-A", "clubs-K"],
+        ["clubs-7", "hearts-6", "hearts-7"],
+        ["clubs-8"],
+    ], overtrump=True)
+    act(game, "play", ["clubs-6"])
+    act(game, "play", ["clubs-7"], player=1)
+    act(game, "play", ["clubs-8"], player=2)
+    assert game["phase"] == "lead" and game["turn"] == 0
+    assert len(game["_captured"][2]) == 3
+    assert [len(player["hand"]) for player in game["players"]] == [2, 2, 0]
+
+
+def test_players_empty_before_the_trick_are_not_extra_cycle_participants():
+    game = position([["clubs-K", "clubs-A"], ["clubs-10", "hearts-6"], []],
+                    overtrump=True)
+    act(game, "play", ["clubs-K"])
+    act(game, "play", ["clubs-10"], player=1)
+    assert game["_cycle_participants"] == [0, 1]
+    act(game, "play", ["clubs-A"])
+    assert game["phase"] == "reply" and game["turn"] == 1
+    act(game, "play", ["hearts-6"], player=1)
+    assert game["phase"] == "round_over"
+
+
+@pytest.mark.parametrize("trump", SUITS)
+@pytest.mark.parametrize("present", [SUITS, ("clubs", "spades", "hearts"),
+                                     ("diamonds", "hearts"), ("clubs",), ()])
+def test_hand_sort_groups_colours_sorts_ranks_and_places_trumps_last(trump, present):
+    cards = [card(f"{suit}-{rank}") for rank in reversed(RANKS) for suit in present]
+    original = deepcopy(cards)
+    sorted_cards = sort_hand(cards, trump)
+    assert cards == original
+    assert {item["id"] for item in sorted_cards} == {item["id"] for item in cards}
+    groups = [(suit, list(group)) for suit, group in itertools.groupby(sorted_cards, key=lambda item: item["suit"])]
+    assert len(groups) == len(present)
+    if trump in present:
+        assert groups[-1][0] == trump
+    for _, group in groups:
+        assert [item["rank"] for item in group] == list(RANKS)
+    nontrump_suits = [suit for suit, _ in groups if suit != trump]
+    reds = sum(suit in ("diamonds", "hearts") for suit in nontrump_suits)
+    blacks = len(nontrump_suits) - reds
+    switches = sum((left in ("diamonds", "hearts")) != (right in ("diamonds", "hearts"))
+                   for left, right in zip(nontrump_suits, nontrump_suits[1:]))
+    assert switches == min(max(0, len(nontrump_suits) - 1), 2 * min(reds, blacks))
+    all_suits = [suit for suit, _ in groups]
+    reds = sum(suit in ("diamonds", "hearts") for suit in all_suits)
+    blacks = len(all_suits) - reds
+    switches = sum((left in ("diamonds", "hearts")) != (right in ("diamonds", "hearts"))
+                   for left, right in zip(all_suits, all_suits[1:]))
+    maximum = 2 * min(reds, blacks)
+    if trump in present:
+        ending_colour = reds if trump in ("diamonds", "hearts") else blacks
+        other_colour = len(all_suits) - ending_colour
+        if ending_colour <= other_colour:
+            maximum -= 1
+    assert switches == min(max(0, len(all_suits) - 1), maximum)
+
+
+def test_colour_alternation_includes_the_last_trump_group():
+    cards = [card("clubs-6"), card("diamonds-6"), card("hearts-6")]
+    assert [item["suit"] for item in sort_hand(cards, "hearts")] == [
+        "diamonds", "clubs", "hearts"]
+
+
+def test_initial_sort_and_human_only_deal_events_retain_actual_dealing_order():
+    game = new_game({"players": 4, "hand_size": 6}, seed=12)
+    assert all(player["hand"] == sort_hand(player["hand"], game["trump"])
+               for player in game["players"])
+    events = view(game)["events"]
+    assert all(len(event["cards"]) == event["count"] for event in events if event["player"] == 0)
+    assert all("cards" not in event for event in events if event["player"] != 0)
+    assert {event["cards"][0]["id"] for event in events if event["player"] == 0} == {
+        item["id"] for item in game["players"][0]["hand"]}
+    # Public sanitization also protects against a legacy event containing bot cards.
+    game["events"] = [{"type": "draw", "player": 1, "count": 1, "cards": [card("hearts-A")]}]
+    assert view(game)["events"] == [{"type": "draw", "player": 1, "count": 1}]
+
+
+def test_legacy_cover_with_an_extra_beat_is_collected_without_losing_cards():
+    hands = [["clubs-K", "clubs-A", "spades-6", "diamonds-6"],
+             ["clubs-10", "hearts-6", "hearts-7", "diamonds-7"]]
+    used = {item for hand in hands for item in hand}
+    deck = [f"{suit}-{rank}" for suit in SUITS for rank in RANKS
+            if f"{suit}-{rank}" not in used and f"{suit}-{rank}" not in ("spades-9", "hearts-9")]
+    deck += ["spades-9", "hearts-9"]
+    game = position(hands, deck=deck, overtrump=True)
+    game["players"][0]["penalty"] = 4
+    act(game, "play", ["clubs-K"])
+    act(game, "play", ["clubs-10"], player=1)
+    act(game, "play", ["clubs-A"])
+    game.update(phase="cover", turn=1, _remaining_replies=[])
+    del game["_rules_version"]
+    del game["_cycle_participants"]
+    assert_cards_conserved(game)
+    assert normalize_state(game)
+    assert_cards_conserved(game)
+    assert game["phase"] == "lead" and game["turn"] == 0
+    assert [player["penalty"] for player in game["players"]] == [4, 0]
+    assert {item["id"] for item in game["_captured"][0]} == {"clubs-K", "clubs-10", "clubs-A"}
+    assert game["events"][0]["type"] == "rules_updated"
+    assert game["_rules_version"] == 2
+    before = deepcopy(game)
+    assert not normalize_state(game)
+    assert game == before
+
+
+def test_legacy_first_reply_restores_participants_and_finishes_the_initial_cycle():
+    game = position([
+        ["clubs-6", "clubs-A"], ["clubs-7", "hearts-6"],
+        ["clubs-8", "hearts-7"],
+    ], overtrump=True)
+    act(game, "play", ["clubs-6"])
+    act(game, "play", ["clubs-7"], player=1)
+    del game["_rules_version"]
+    del game["_cycle_participants"]
+    assert normalize_state(game)
+    assert game["_cycle_participants"] == [0, 1, 2]
+    assert game["_remaining_replies"] == [2]
+    act(game, "play", ["clubs-8"], player=2)
+    assert game["phase"] == "cover" and game["turn"] == 0
+    act(game, "play", ["clubs-A"])
+    assert game["_remaining_replies"] == [1, 2]
+
+
+@pytest.mark.parametrize("phase", ["lead", "round_over", "match_over"])
+def test_other_legacy_phases_keep_all_cards_and_penalties(phase):
+    game = new_game({"players": 3}, seed=31)
+    game["phase"] = phase
+    game["players"][0]["penalty"] = 8
+    del game["_rules_version"]
+    del game["_cycle_participants"]
+    assert normalize_state(game)
+    assert game["phase"] == phase and game["players"][0]["penalty"] == 8
+    assert_cards_conserved(game)
 
 
 @pytest.mark.parametrize("points,expected", [

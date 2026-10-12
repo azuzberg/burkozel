@@ -7,7 +7,7 @@ Use :func:`view` for browser responses: the stored state contains secret cards.
 from __future__ import annotations
 
 from copy import deepcopy
-from itertools import combinations
+from itertools import combinations, permutations
 import random
 import secrets
 from typing import Any
@@ -18,6 +18,8 @@ RANKS = ("6", "7", "8", "9", "J", "Q", "K", "10", "A")
 POINTS = {"6": 0, "7": 0, "8": 0, "9": 0, "J": 2, "Q": 3,
           "K": 4, "10": 10, "A": 11}
 STRENGTH = {rank: index for index, rank in enumerate(RANKS)}
+SUIT_ORDER = ("clubs", "diamonds", "spades", "hearts")
+RED_SUITS = {"diamonds", "hearts"}
 
 
 class InvalidMove(ValueError):
@@ -27,6 +29,28 @@ class InvalidMove(ValueError):
 def _card(suit: str, rank: str) -> dict[str, Any]:
     return {"id": f"{suit}-{rank}", "suit": suit, "rank": rank,
             "points": POINTS[rank]}
+
+
+def sort_hand(cards: list[dict], trump: str) -> list[dict]:
+    """Group suits with alternating colours where possible and trumps last."""
+    present = [suit for suit in SUIT_ORDER if suit != trump
+               and any(card["suit"] == suit for card in cards)]
+    has_trump = any(card["suit"] == trump for card in cards)
+
+    def order_key(suits: tuple[str, ...]) -> tuple:
+        sequence = (*suits, trump) if has_trump else suits
+        switches = sum((left in RED_SUITS) != (right in RED_SUITS)
+                       for left, right in zip(sequence, sequence[1:]))
+        return -switches, tuple(SUIT_ORDER.index(suit) for suit in suits)
+
+    order = min(permutations(present), key=order_key)
+    positions = {suit: index for index, suit in enumerate((*order, trump))}
+    return sorted(cards, key=lambda card: (positions[card["suit"]], STRENGTH[card["rank"]]))
+
+
+def _sort_hands(game: dict) -> None:
+    for player in game["players"]:
+        player["hand"] = sort_hand(player["hand"], game["trump"])
 
 
 def new_game(settings: dict[str, Any], seed: int | str | None = None) -> dict:
@@ -50,6 +74,7 @@ def new_game(settings: dict[str, Any], seed: int | str | None = None) -> dict:
             for index in range(options["players"])
         ],
         "events": [],
+        "_rules_version": 2,
         "_seed": str(secrets.randbits(128) if seed is None else seed),
         "_last_trick_winner": 0,
     }
@@ -63,20 +88,54 @@ def _deal_round(game: dict, leader: int) -> None:
     game.update({"phase": "lead", "turn": leader, "winner": None,
                  "table": [], "table_cards": [], "result": None,
                  "_deck": deck, "_captured": [[] for _ in game["players"]],
-                 "_leader": leader, "_required_count": 0,
+                 "_leader": leader, "_required_count": 0, "_cycle_participants": [],
                  "_remaining_replies": []})
     for player in game["players"]:
         player.update(hand=[], hand_count=0, round_points=0, tricks_count=0)
     for _ in range(game["settings"]["hand_size"]):
         for offset in range(len(game["players"])):
             index = (leader + offset) % len(game["players"])
-            game["players"][index]["hand"].append(deck.pop(0))
-            game["events"].append({"type": "deal", "player": index, "count": 1})
+            card = deck.pop(0)
+            game["players"][index]["hand"].append(card)
+            event = {"type": "deal", "player": index, "count": 1}
+            if index == 0:
+                event["cards"] = [deepcopy(card)]
+            game["events"].append(event)
     game["open_trump"] = deepcopy(deck[-2])
     game["_hidden_trump_id"] = deck[-1]["id"]
     game["hidden_trump"] = True
     game["trump"] = game["open_trump"]["suit"]
+    _sort_hands(game)
     _sync_counts(game)
+
+
+def normalize_state(game: dict) -> bool:
+    """Upgrade a saved version-one game without resetting its cards or match.
+
+    An old optional-cover sequence may already have spent unequal numbers of
+    cards. Award that existing trick normally rather than inventing partial
+    responses. An initial mandatory round can continue under the new rules.
+    The caller must persist changes and increment its optimistic revision.
+    """
+    if game.get("_rules_version") == 2:
+        return False
+    game["_rules_version"] = 2
+    game["_cycle_participants"] = []
+    if game["phase"] == "reply":
+        leader = game["table"][0]["player"]
+        members = {play["player"] for play in game["table"]}
+        members.update(game["_remaining_replies"])
+        game["_leader"] = leader
+        game["_cycle_participants"] = [
+            (leader + offset) % len(game["players"])
+            for offset in range(len(game["players"]))
+            if (leader + offset) % len(game["players"]) in members]
+    elif game["phase"] == "cover":
+        game["events"] = [{"type": "rules_updated"}]
+        _collect_and_draw(game)
+    _sort_hands(game)
+    _sync_counts(game)
+    return True
 
 
 def _sync_counts(game: dict) -> None:
@@ -167,7 +226,7 @@ def act(game: dict, action: str, card_ids: list[str] | None = None,
     if action == "pass":
         if game["phase"] != "cover":
             raise InvalidMove("Отказаться можно только от дополнительного перекрытия.")
-        _advance_cover(game, (player + 1) % len(game["players"]))
+        _collect_and_draw(game)
         return
     if action != "play":
         raise InvalidMove("Неизвестное действие.")
@@ -179,11 +238,12 @@ def act(game: dict, action: str, card_ids: list[str] | None = None,
             raise InvalidMove("Карты захода должны быть одной масти.")
         game["_leader"] = player
         game["_required_count"] = len(cards)
-        _place(game, player, cards, "lead")
-        game["_remaining_replies"] = [
+        game["_cycle_participants"] = [
             (player + offset) % len(game["players"])
-            for offset in range(1, len(game["players"]))
+            for offset in range(len(game["players"]))
             if game["players"][(player + offset) % len(game["players"])]["hand"]]
+        _place(game, player, cards, "lead")
+        game["_remaining_replies"] = game["_cycle_participants"][1:]
         if game["_remaining_replies"]:
             game["phase"] = "reply"
             game["turn"] = game["_remaining_replies"][0]
@@ -197,31 +257,32 @@ def act(game: dict, action: str, card_ids: list[str] | None = None,
         if ordered is None:
             raise InvalidMove("Для перекрытия нужно побить все верхние карты или отказаться.")
         _place(game, player, ordered, "beat")
-        _advance_cover(game, (player + 1) % len(game["players"]))
+        game["_leader"] = player
+        participants = game["_cycle_participants"]
+        first = participants.index(player)
+        game["_remaining_replies"] = participants[first + 1:] + participants[:first]
+        game["phase"] = "reply"
+        game["turn"] = game["_remaining_replies"][0]
         return
     _place(game, player, ordered if ordered is not None else cards,
            "beat" if ordered is not None else "discard")
     game["_remaining_replies"].pop(0)
     if game["_remaining_replies"]:
         game["turn"] = game["_remaining_replies"][0]
-    elif game["settings"]["overtrump"]:
-        _advance_cover(game, game["_leader"])
     else:
+        _finish_cycle(game)
+
+
+def _finish_cycle(game: dict) -> None:
+    """A further cycle must be affordable by every original participant."""
+    count = game["_required_count"]
+    if (not game["settings"]["overtrump"] or game["winner"] == game["_leader"]
+            or any(len(game["players"][index]["hand"]) < count
+                   for index in game["_cycle_participants"])):
         _collect_and_draw(game)
-
-
-def _advance_cover(game: dict, start: int) -> None:
-    """Responders after the newest winner may cover or pass once per circuit."""
-    for offset in range(len(game["players"])):
-        index = (start + offset) % len(game["players"])
-        if index == game["winner"]:
-            _collect_and_draw(game)
-            return
-        if game["players"][index]["hand"]:
-            game["phase"] = "cover"
-            game["turn"] = index
-            return
-    _collect_and_draw(game)
+        return
+    game["phase"] = "cover"
+    game["turn"] = game["_leader"]
 
 
 def _collect_cards(game: dict) -> int:
@@ -235,6 +296,7 @@ def _collect_cards(game: dict) -> int:
     game["table"] = []
     game["table_cards"] = []
     game["_remaining_replies"] = []
+    game["_cycle_participants"] = []
     game["_required_count"] = 0
     return winner
 
@@ -248,13 +310,20 @@ def _collect_and_draw(game: dict) -> None:
             if game["_deck"] and len(game["players"][index]["hand"]) < size:
                 card = game["_deck"].pop(0)
                 game["players"][index]["hand"].append(card)
-                game["events"].append({"type": "draw", "player": index, "count": 1})
+                event = {"type": "draw", "player": index, "count": 1}
+                if index == 0:
+                    event["cards"] = [deepcopy(card)]
+                game["events"].append(event)
                 if game["open_trump"] and card["id"] == game["open_trump"]["id"]:
                     game["open_trump"] = None
                 if card["id"] == game["_hidden_trump_id"]:
                     game["hidden_trump"] = False
                     game["trump"] = card["suit"]
                     game["events"].append({"type": "trump", "suit": card["suit"]})
+                    _sort_hands(game)
+                else:
+                    game["players"][index]["hand"] = sort_hand(
+                        game["players"][index]["hand"], game["trump"])
     _sync_counts(game)
     if not any(player["hand"] for player in game["players"]):
         _finish_round(game)
@@ -346,6 +415,15 @@ def _public_play(play: dict) -> dict:
     return public
 
 
+def _public_event(event: dict) -> dict:
+    if event["type"] == "play":
+        return _public_play(event)
+    public = deepcopy(event)
+    if event["type"] in ("deal", "draw") and event["player"] != 0:
+        public.pop("cards", None)
+    return public
+
+
 def view(game: dict) -> dict:
     """Return a detached browser-safe snapshot, including masked events."""
     public = {key: deepcopy(game[key]) for key in (
@@ -355,8 +433,7 @@ def view(game: dict) -> dict:
         {**deepcopy(player), "hand": deepcopy(player["hand"]) if player["id"] == 0 else []}
         for player in game["players"]]
     public["table"] = [_public_play(play) for play in game["table"]]
-    public["events"] = [_public_play(event) if event["type"] == "play" else deepcopy(event)
-                        for event in game["events"]]
+    public["events"] = [_public_event(event) for event in game["events"]]
     human_turn = game["turn"] == 0
     count = game["_required_count"]
     can_play = (human_turn and game["phase"] in ("lead", "reply", "cover")
