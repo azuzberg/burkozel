@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#dceef7" />
+    <meta name="csrf-token" content="{{ csrf_token }}" />
+    <meta
+      name="description"
+      content="Буркозёл — карточная игра за светло-голубым столом. Играйте с ботами по своим правилам."
+    />
+    <title>Буркозёл — карточный клуб</title>
+    <link
+      rel="icon"
+      href="{{ url_for('static', filename='favicon.svg') }}"
+      type="image/svg+xml"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </head>
+  <body>
+    <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern
+          id="back-pattern"
+          width="20"
+          height="20"
+          patternUnits="userSpaceOnUse"
+        >
+          <path
+            d="M10 1 19 10 10 19 1 10Z"
+            fill="none"
+            stroke="#fff"
+            stroke-width=".55"
+            opacity=".65"
+          />
+          <path
+            d="M10 5 15 10 10 15 5 10Z"
+            fill="none"
+            stroke="#fff"
+            stroke-width=".55"
+            opacity=".8"
+          />
+          <circle cx="10" cy="10" r="1" fill="#fff" />
+        </pattern>
+        <symbol id="red-back" viewBox="0 0 100 140">
+          <rect x="1" y="1" width="98" height="138" rx="7" fill="#fffdf9" />
+          <rect x="6" y="6" width="88" height="128" rx="4" fill="#b83e42" />
+          <rect
+            x="9"
+            y="9"
+            width="82"
+            height="122"
+            rx="3"
+            fill="url(#back-pattern)"
+            stroke="#fffdf9"
+            stroke-width=".9"
+          />
+          <path
+            d="M17 27Q50 9 83 27M17 113Q50 131 83 113"
+            fill="none"
+            stroke="#fffdf9"
+            stroke-width="1.3"
+          />
+          <g fill="none" stroke="#fffdf9" stroke-width="1.2">
+            <circle cx="50" cy="45" r="22" />
+            <circle cx="50" cy="95" r="22" />
+            <circle cx="50" cy="45" r="17" />
+            <circle cx="50" cy="95" r="17" />
+            <path
+              d="M50 25V65M30 45H70M36 31 64 59M36 59 64 31M50 75V115M30 95H70M36 81 64 109M36 109 64 81"
+            />
+            <path
+              d="M18 66Q28 58 38 69Q50 80 62 69Q72 58 82 66M18 74Q28 82 38 71Q50 60 62 71Q72 82 82 74"
+            />
+          </g>
+          <g fill="#fffdf9">
+            <path d="m50 36 4 8 9 1-7 6 2 9-8-4-8 4 2-9-7-6 9-1Z" />
+            <path d="m50 84 4 8 9 1-7 6 2 9-8-4-8 4 2-9-7-6 9-1Z" />
+          </g>
+        </symbol>
+      </defs>
+    </svg>
+    <div id="app">
+      <header class="site-header">
+        <a href="#" class="brand" id="brand-home" aria-label="Буркозёл, лобби"
+          ><span class="brand-symbol">♣</span
+          ><span>Буркозёл<small>КАРТОЧНЫЙ КЛУБ</small></span></a
+        >
+        <div class="header-right">
+          <span class="header-note"
+            ><span class="status-dot"></span> Хорошая компания. Честная
+            игра.</span
+          ><button
+            class="button-icon rules-toggle"
+            title="Правила игры"
+            aria-label="Открыть правила игры"
+          >
+            ?
+          </button>
+        </div>
+      </header>
+      <main id="main-content">
+        <section id="lobby-screen" class="screen lobby-screen">
+          <div class="hero">
+            <div class="hero-copy">
+              <div class="eyebrow">
+                <span class="small-line"></span> КЛАССИКА ЗА ОДНИМ СТОЛОМ
+              </div>
+              <h1>Ваш ход.<br /><em>Ваш козырь.</em></h1>
+              <p class="hero-description">
+                Знакомая карточная игра, немного удачи<br
+                  class="desktop-break"
+                />
+                и хорошая стратегия. Присаживайтесь.
+              </p>
+              <div class="hero-tags">
+                <span>36 карт</span><span>2–4 игрока</span
+                ><span>До 12 очков</span>
+              </div>
+              <button
+                id="continue-game"
+                class="button button-dark continue-button"
+                hidden
+              >
+                <span>Продолжить игру</span><span aria-hidden="true">→</span>
+              </button>
+            </div>
+            <div class="hero-art" aria-hidden="true">
+              <div class="art-orbit orbit-one"></div>
+              <div class="art-orbit orbit-two"></div>
+              <span class="art-suit art-suit-club">♣</span
+              ><span class="art-suit art-suit-diamond">♦</span>
+              <div class="art-card art-back-one">
+                <svg viewBox="0 0 100 140"><use href="#red-back" /></svg>
+              </div>
+              <div class="art-card art-back-two">
+                <svg viewBox="0 0 100 140"><use href="#red-back" /></svg>
+              </div>
+              <div class="art-card art-ace">
+                <div class="art-corner">A<span>♠</span></div>
+                <div class="art-central-spade">♠</div>
+                <div class="art-corner art-corner-bottom">A<span>♠</span></div>
+              </div>
+              <span class="art-note">Всё начинается с одной карты.</span>
+            </div>
+          </div>
+          <div class="mode-heading">
+            <h2>С кем сыграем?</h2>
+            <span>ВЫБЕРИТЕ СВОЙ СТОЛ</span>
+          </div>
+          <div class="mode-grid">
+            <button id="open-settings" class="mode-card bot-mode">
+              <div class="mode-icon">♠<span>♣</span></div>
+              <div class="mode-text">
+                <span class="mode-kicker">ВСЕГДА ГОТОВЫ К ПАРТИИ</span>
+                <h3>Играть с ботами</h3>
+                <p>Свой темп, свои правила, достойные соперники.</p>
+              </div>
+              <span class="mode-arrow">→</span>
+            </button>
+            <button
+              id="multiplayer-placeholder"
+              class="mode-card multiplayer-mode"
+            >
+              <div class="mode-icon people-icon">
+                <span>●</span><span>●</span>
+              </div>
+              <div class="mode-text">
+                <span class="mode-kicker">СКОРО ЗА ЭТИМ СТОЛОМ</span>
+                <h3>Мультиплеер <span class="soon-badge">Скоро</span></h3>
+                <p>Пригласите друзей и сыграйте вместе.</p>
+              </div>
+              <span class="mode-arrow">→</span>
+            </button>
+          </div>
+          <footer class="lobby-footer">
+            <span>Маленькая колода. Большая игра.</span
+            ><button class="text-button rules-toggle">
+              Как играть <span>→</span>
+            </button>
+          </footer>
+        </section>
+        <section id="settings-screen" class="screen settings-screen" hidden>
+          <button class="back-link" id="settings-back">
+            <span>←</span> В лобби
+          </button>
+          <div class="settings-title">
+            <div>
+              <div class="eyebrow">ВАША ПАРТИЯ — ВАШИ ПРАВИЛА</div>
+              <h1>Настроим стол<span>.</span></h1>
+              <p>Выберите параметры — боты уже ждут.</p>
+            </div>
+            <span class="settings-decoration" aria-hidden="true">♧</span>
+          </div>
+          <form id="settings-form">
+            <div class="settings-grid">
+              <fieldset class="setting-card">
+                <legend><span class="setting-number">01</span> Игроки</legend>
+                <p>Вместе с вами</p>
+                <div class="radio-options">
+                  <label
+                    ><input
+                      type="radio"
+                      name="players"
+                      value="2"
+                      checked
+                      required /><span
+                      >2 <small>один на один</small><i></i></span></label
+                  ><label
+                    ><input type="radio" name="players" value="3" /><span
+                      >3 <small>партия на троих</small><i></i></span></label
+                  ><label
+                    ><input type="radio" name="players" value="4" /><span
+                      >4 <small>полный стол</small><i></i></span
+                  ></label>
+                </div>
+              </fieldset>
+              <fieldset class="setting-card">
+                <legend>
+                  <span class="setting-number">02</span> Карты в руке
+                </legend>
+                <p>После каждого добора</p>
+                <div class="radio-options">
+                  <label
+                    ><input
+                      type="radio"
+                      name="hand_size"
+                      value="4"
+                      checked
+                      required /><span>4 карты <i></i></span></label
+                  ><label
+                    ><input type="radio" name="hand_size" value="6" /><span
+                      >6 карт <i></i></span
+                  ></label>
+                </div>
+                <div class="setting-footnote">
+                  Бура — все карты в руке одной козырной масти.
+                </div>
+              </fieldset>
+              <fieldset class="setting-card">
+                <legend>
+                  <span class="setting-number">03</span> Сбивать поверх
+                </legend>
+                <p>Ещё один шанс на взятку</p>
+                <div class="radio-options">
+                  <label
+                    ><input
+                      type="radio"
+                      name="overtrump"
+                      value="true"
+                      checked
+                      required /><span>Да <i></i></span></label
+                  ><label
+                    ><input type="radio" name="overtrump" value="false" /><span
+                      >Нет <i></i></span
+                  ></label>
+                </div>
+                <div class="setting-footnote">
+                  Перекрывайте карты в новом круге, пока есть чем ответить.
+                </div>
+              </fieldset>
+              <fieldset class="setting-card">
+                <legend>
+                  <span class="setting-number">04</span> Тёмный сброс
+                </legend>
+                <p>Чуть больше интриги</p>
+                <div class="radio-options">
+                  <label
+                    ><input
+                      type="radio"
+                      name="dark"
+                      value="true"
+                      checked
+                      required /><span>Да <i></i></span></label
+                  ><label
+                    ><input type="radio" name="dark" value="false" /><span
+                      >Нет <i></i></span
+                  ></label>
+                </div>
+                <div class="setting-footnote">
+                  Карты, которые не бьют взятку, сбрасываются рубашкой вверх.
+                </div>
+              </fieldset>
+            </div>
+            <div class="settings-bottom">
+              <p>
+                <span class="status-dot"></span> Без ставок. Просто хорошая
+                игра.
+              </p>
+              <button type="submit" class="button button-dark" id="start-game">
+                <span>Начать игру</span><span aria-hidden="true">→</span>
+              </button>
+            </div>
+          </form>
+        </section>
+        <section id="game-screen" class="screen game-screen" hidden>
+          <div class="game-topbar">
+            <button id="game-lobby" class="back-link">
+              <span>←</span> Лобби
+            </button>
+            <div class="game-round">
+              <span class="status-dot"></span
+              ><span id="round-label">Раздача 1</span
+              ><span class="topbar-separator"></span
+              ><span id="game-settings-label"></span>
+            </div>
+            <button id="new-game" class="text-button">
+              Новая игра <span>→</span>
+            </button>
+          </div>
+          <div id="game-table" class="game-table">
+            <div class="table-inner-line"></div>
+            <div class="table-watermark" aria-hidden="true">
+              ♣<span>БУРКОЗЁЛ</span>
+            </div>
+            <div id="opponents" class="opponents"></div>
+            <div id="deck-area" class="deck-area"></div>
+            <div
+              id="table-cards"
+              class="table-cards"
+              aria-label="Карты на столе"
+            ></div>
+            <div
+              id="table-status"
+              class="table-status"
+              aria-live="polite"
+            ></div>
+            <div id="human-player" class="human-player"></div>
+            <div
+              id="human-hand"
+              class="human-hand"
+              aria-label="Ваши карты"
+            ></div>
+          </div>
+          <div class="game-controls">
+            <div class="main-actions">
+              <button
+                id="play-cards"
+                class="button button-dark play-button"
+                disabled
+              >
+                <span>Сброс</span
+                ><span id="selection-count" class="selection-count"
+                  >0</span
+                ></button
+              ><button id="pass-turn" class="button button-light" hidden>
+                Не крыть</button
+              ><button id="declare-bura" class="button button-bura" hidden>
+                ♣ Бура!
+              </button>
+            </div>
+            <div class="turn-guide">
+              <p id="turn-title">Ваш ход</p>
+              <span id="turn-description">Выберите карты.</span
+              ><button id="resume-bots" class="text-button" hidden>
+                Продолжить без буры →
+              </button>
+            </div>
+            <div class="controls-note">
+              <span>Туз 11 · 10 — 10 · К 4 · Д 3 · В 2</span
+              ><button class="text-button rules-toggle">Правила →</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <div id="animation-layer" class="animation-layer" aria-hidden="true"></div>
+    <dialog id="rules-dialog" class="modal rules-modal">
+      <button class="modal-close" data-close-dialog aria-label="Закрыть">
+        ×
+      </button>
+      <div class="eyebrow">БУРКОЗЁЛ · ПРАВИЛА</div>
+      <h2>Взятки — ваши.<br />Штрафы — чужие.</h2>
+      <div class="rules-content">
+        <p>
+          36 карт, 2–4 игрока, по 4 или 6 карт в руке. Сначала открывается
+          козырь. Под ним лежит скрытая карта: её добирают последней, и её масть
+          становится новым козырем.
+        </p>
+        <h3>Ход и взятка</h3>
+        <p>
+          Начните с одной, двух или трёх карт одной масти. Следующие игроки
+          кладут столько же карт. Чтобы забрать взятку, нужно побить каждую
+          карту: старшей той же масти или козырем. Если хотя бы одна карта не
+          побита, весь ваш ответ считается сбросом. Карты можно сбрасывать любой
+          масти.
+        </p>
+        <p>
+          При «сбивании поверх» ответы идут по кругу, пока остальные игроки не
+          откажутся крыть. Если карт для полного ответа не хватает, можно только
+          отказаться. Первым добирает карты победитель взятки, по одной каждому.
+          Он же начинает следующий заход.
+        </p>
+        <h3>Старшинство и очки</h3>
+        <div class="rank-rule">
+          А <span>11</span> <b>›</b> 10 <span>10</span> <b>›</b> К
+          <span>4</span> <b>›</b> Д <span>3</span> <b>›</b> В <span>2</span>
+          <b>›</b> 9, 8, 7, 6 <span>0</span>
+        </div>
+        <h3>Бура</h3>
+        <p>
+          Вся полная рука (4 или 6 карт) козырной масти — бура. Её можно
+          объявить перед первым ходом нового захода, даже вне очереди. Раздача
+          сразу заканчивается: объявившему 0 штрафов, всем остальным по 6.
+        </p>
+        <h3>Кто победил?</h3>
+        <p>
+          После раздачи игроки с самым большим числом очков во взятках получают
+          0 штрафов, остальные: за 31 очко и больше — 2, за 1–30 — 4, за 0 — 6.
+          При равенстве лучшего результата все лидеры получают 0.
+        </p>
+        <p>
+          Игра продолжается, пока кто-то не наберёт 12 штрафных очков. Такие
+          игроки проигрывают; остальные выигрывают. Здесь нет ставок и банка.
+        </p>
+        <p class="card-design-note">
+          Оригинальная красная рубашка вдохновлена классическими картами
+          Bicycle. Это не официальный дизайн Bicycle.
+        </p>
+      </div>
+      <button class="button button-dark" data-close-dialog>
+        Всё понятно <span>→</span>
+      </button>
+    </dialog>
+    <dialog id="result-dialog" class="modal result-modal">
+      <div id="result-content"></div>
+    </dialog>
+    <dialog id="new-game-dialog" class="modal small-modal">
+      <button class="modal-close" data-close-dialog aria-label="Закрыть">
+        ×
+      </button>
+      <div class="eyebrow">НОВЫЙ СТОЛ</div>
+      <h2>Начать заново?</h2>
+      <p>Текущая игра будет завершена. Вы сможете выбрать новые настройки.</p>
+      <div class="dialog-actions">
+        <button class="button button-light" data-close-dialog>
+          Продолжить партию</button
+        ><button class="button button-dark" id="confirm-new-game">
+          Новая игра →
+        </button>
+      </div>
+    </dialog>
+    <noscript
+      ><div class="noscript-message">
+        Для игры включите JavaScript в браузере.
+      </div></noscript
+    >
+  </body>
+</html>

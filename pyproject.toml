@@ -1,0 +1,9 @@
+[project]
+name = "burkozel"
+version = "0.1.0"
+description = "Браузерный Буркозёл с ботами на Flask и SQLite"
+requires-python = "==3.13.3"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
